@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <Adafruit_TinyUSB.h>
 #include <bluefruit.h>
 #include <Adafruit_LittleFS.h>
 #include <InternalFileSystem.h>
@@ -73,7 +74,11 @@ void printAddr(const ble_gap_addr_t& addr) {
 //  FLASH PERSISTENCE
 // ═══════════════════════════════════════════
 void loadDevices() {
-  InternalFS.begin();
+  if (!InternalFS.begin()) {
+    Serial.println("[SYS] Flash mount failed, formatting...");
+    InternalFS.format();
+    if (!InternalFS.begin()) { Serial.println("[SYS] Flash failed."); return; }
+  }
   File f(InternalFS);
   if (f.open(DEVICES_FILE, FILE_O_READ)) {
     f.read(&savedCount, 1);
@@ -158,7 +163,6 @@ void stopScan() {
 //  BLE SCAN CALLBACK
 // ═══════════════════════════════════════════
 void scan_callback(ble_gap_evt_adv_report_t* report) {
-  // Always: match known devices by address
   for (int i = 0; i < savedCount; i++) {
     if (addrEqual(report->peer_addr, savedDevices[i].addr)) {
       Serial.print("[SCAN] Known device found: ");
@@ -170,7 +174,6 @@ void scan_callback(ble_gap_evt_adv_report_t* report) {
     }
   }
 
-  // Pairing mode: accept any device advertising Nordic UART Service
   if (pairingMode) {
     uint8_t uuidBuf[16] = {0};
     bool hasEcoUUID = false;
@@ -183,7 +186,6 @@ void scan_callback(ble_gap_evt_adv_report_t* report) {
     }
 
     if (hasEcoUUID) {
-      // Capture name for storage
       uint8_t nameBuf[20] = {0};
       if (!Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_COMPLETE_LOCAL_NAME, nameBuf, sizeof(nameBuf))) {
         Bluefruit.Scanner.parseReportByType(report, BLE_GAP_AD_TYPE_SHORT_LOCAL_NAME, nameBuf, sizeof(nameBuf));
@@ -253,15 +255,21 @@ void uart_rx_callback(BLEClientUart& uart) {
 //  SETUP
 // ═══════════════════════════════════════════
 void setup() {
+  pinMode(LED_PIN, OUTPUT);
+
+  // 3 blinks = firmware started
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(LED_PIN, HIGH); delay(100);
+    digitalWrite(LED_PIN, LOW);  delay(100);
+  }
+
   Serial.begin(115200);
-  delay(500);
+  unsigned long t = millis();
+  while (!Serial && millis() - t < 3000) delay(10);
 
   Serial.println("══════════════════════════════");
   Serial.print  ("  HeatPett Dongle v"); Serial.println(VERSION);
   Serial.println("══════════════════════════════");
-
-  pinMode(LED_PIN, OUTPUT);
-  digitalWrite(LED_PIN, LOW);
 
   loadDevices();
 
@@ -353,7 +361,7 @@ void loop() {
         Serial.println("Error: device not in saved list.");
       }
 
-    } else if (cmd == "pairing") {
+    } else if (cmd == "pairing" || cmd == "pair") {
       Serial.println("pairing");
       startPairingMode();
       if (connected && clientUart.discovered()) {
@@ -361,11 +369,15 @@ void loop() {
         Serial.println("Pairing command sent to connected device.");
       }
 
+    } else if (cmd == "exit") {
+      Serial.println("exit");
+      stopPairingMode();
+
     } else if (cmd == "dfu") {
       Serial.println("dfu");
       Serial.println("Entering UF2 bootloader — drag firmware.uf2 onto the drive...");
       delay(200);
-      NRF_POWER->GPREGRET = 0x57;  // magic byte for UF2 USB mass storage bootloader
+      NRF_POWER->GPREGRET = 0x57;
       NVIC_SystemReset();
 
     } else if (cmd == "uptime") {
