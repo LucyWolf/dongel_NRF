@@ -11,7 +11,7 @@ using namespace Adafruit_LittleFS_Namespace;
 #define MAX_DEVICES      5
 #define DEVICES_FILE     "/devices.bin"
 #define SCAN_BLINK_MS    300
-#define PULSE_PERIOD_MS  1500
+#define PULSE_PERIOD_MS  2000
 #define IDLE_BLINK_ON_MS 1000
 #define IDLE_BLINK_MS    2000
 #define PAIRING_TIMEOUT_MS 60000
@@ -415,12 +415,16 @@ void loop() {
     return;
   }
 
-  // ── LED: slow pulse (on/off) while in pairing mode ──
+  // ── LED: breathing fade while in pairing mode ──
   if (pairingMode) {
-    unsigned long now    = millis();
-    unsigned long period = PULSE_PERIOD_MS;
-    unsigned long phase  = now % period;
-    digitalWrite(LED_PIN, phase < period / 2 ? HIGH : LOW);
+    unsigned long phase = millis() % PULSE_PERIOD_MS;
+    uint8_t brightness;
+    if (phase < PULSE_PERIOD_MS / 2) {
+      brightness = (uint8_t)(phase * 255UL / (PULSE_PERIOD_MS / 2));
+    } else {
+      brightness = (uint8_t)((PULSE_PERIOD_MS - phase) * 255UL / (PULSE_PERIOD_MS / 2));
+    }
+    analogWrite(LED_PIN, brightness);
     return;
   }
 
