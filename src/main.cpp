@@ -11,6 +11,7 @@ using namespace Adafruit_LittleFS_Namespace;
 #define MAX_DEVICES      5
 #define DEVICES_FILE     "/devices.bin"
 #define SCAN_BLINK_MS    300
+#define PULSE_PERIOD_MS  1500
 #define IDLE_BLINK_ON_MS 1000
 #define IDLE_BLINK_MS    2000
 #define PAIRING_TIMEOUT_MS 60000
@@ -273,7 +274,7 @@ void setup() {
 
   loadDevices();
 
-  Serial.println("[SYS] Commands: info, list, reboot, remove, pairing, dfu, uptime, meow");
+  Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pairing, dfu, uptime, meow");
 
   Bluefruit.begin(0, 1);
   Bluefruit.setName("HeatPett-Dongle");
@@ -361,6 +362,14 @@ void loop() {
         Serial.println("Error: device not in saved list.");
       }
 
+    } else if (cmd == "clear") {
+      Serial.println("clear");
+      if (connected) Bluefruit.disconnect(currentConnHandle);
+      savedCount = 0;
+      memset(savedDevices, 0, sizeof(savedDevices));
+      saveDevices();
+      Serial.println("All saved devices removed.");
+
     } else if (cmd == "pairing" || cmd == "pair") {
       Serial.println("pairing");
       startPairingMode();
@@ -400,9 +409,18 @@ void loop() {
     }
   }
 
-  // ── LED: solid on when connected ─────────
+  // ── LED: off when connected ──────────────
   if (connected) {
-    digitalWrite(LED_PIN, HIGH);
+    digitalWrite(LED_PIN, LOW);
+    return;
+  }
+
+  // ── LED: slow pulse (on/off) while in pairing mode ──
+  if (pairingMode) {
+    unsigned long now    = millis();
+    unsigned long period = PULSE_PERIOD_MS;
+    unsigned long phase  = now % period;
+    digitalWrite(LED_PIN, phase < period / 2 ? HIGH : LOW);
     return;
   }
 
