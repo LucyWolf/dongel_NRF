@@ -6,7 +6,7 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION          "1.0.8"
+#define VERSION          "1.1.4"
 #define LED_PIN          15
 #define MAX_DEVICES      5
 #define DEVICES_FILE     "/devices.bin"
@@ -16,7 +16,7 @@ using namespace Adafruit_LittleFS_Namespace;
 #define IDLE_BLINK_MS    2000
 #define PAIRING_TIMEOUT_MS 60000
 
-// HeatPett Ecosystem UUID: B5A47D3E-8C21-4F68-92A0-1E3D5C7B9F04 (little-endian)
+// Headpat Ecosystem UUID: B5A47D3E-8C21-4F68-92A0-1E3D5C7B9F04 (little-endian)
 static const uint8_t ECOSYSTEM_UUID[16] = {
   0x04, 0x9F, 0x7B, 0x5C, 0x3D, 0x1E, 0xA0, 0x92,
   0x68, 0x4F, 0x21, 0x8C, 0x3E, 0x7D, 0xA4, 0xB5
@@ -282,7 +282,7 @@ void setup() {
   while (!Serial && millis() - t < 3000) delay(10);
 
   Serial.println("══════════════════════════════");
-  Serial.print  ("  HeatPett Dongle v"); Serial.println(VERSION);
+  Serial.print  ("  Headpat Dongle v"); Serial.println(VERSION);
   Serial.println("══════════════════════════════");
 
   loadDevices();
@@ -290,7 +290,7 @@ void setup() {
   Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pairing, dfu, uptime, meow");
 
   Bluefruit.begin(0, 1);
-  Bluefruit.setName("HeatPett-Dongle");
+  Bluefruit.setName("Headpat-Dongle");
 
   clientUart.begin();
   clientUart.setRxCallback(uart_rx_callback);
@@ -333,7 +333,7 @@ void loop() {
     } else if (cmd == "info") {
       ble_gap_addr_t myAddr = Bluefruit.getAddr();
       Serial.println("info");
-      Serial.println("HeatPett Dongle v" VERSION);
+      Serial.println("Headpat Dongle v" VERSION);
       Serial.println("Board: nRF52840");
       Serial.println("SOC: nrf52840");
       Serial.print  ("Device address: "); printAddr(myAddr); Serial.println();
@@ -407,18 +407,25 @@ void loop() {
       Serial.print("Uptime: "); Serial.println(formatUptime());
 
     } else if (cmd == "reqbat") {
-      // Request battery from HeatPett via BLE
       if (connected && clientUart.discovered()) {
         clientUart.write((uint8_t)0xFC);
-        Serial.println("[REQBAT] Sent battery request to HeatPett");
+        Serial.println("[REQBAT] Sent battery request to Headpat");
       } else {
         Serial.println("[REQBAT] Not connected");
+      }
+
+    } else if (cmd == "reqver") {
+      if (connected && clientUart.discovered()) {
+        clientUart.write((uint8_t)0xFB);
+        Serial.println("[REQVER] Sent version request to Headpat");
+      } else {
+        Serial.println("[REQVER] Not connected");
       }
 
     } else if (cmd == "meow") {
       Serial.println("meow");
       Serial.println("(^=◕ᴥ◕=^)");
-      Serial.println("HeatPett says: purrrr...");
+      Serial.println("Headpat says: purrrr...");
 
     } else if (cmd.startsWith("m:")) {
       if (connected && clientUart.discovered()) {
@@ -431,7 +438,7 @@ void loop() {
     }
   }
 
-  // ── Poll UART from HeatPett (backup to callback) ──
+  // ── Poll UART from Headpat (backup to callback) ──
   if (connected && clientUart.discovered() && clientUart.available()) {
     static String rxBuf = "";
     while (clientUart.available()) {
