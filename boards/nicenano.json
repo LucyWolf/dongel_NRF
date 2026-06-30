@@ -3,6 +3,9 @@
     "arduino": {
       "ldscript": "nrf52840_s140_v6.ld"
     },
+    "bsp": {
+      "name": "adafruit"
+    },
     "core": "nRF5",
     "cpu": "cortex-m4",
     "extra_flags": "-DNRF52840_XXAA -DARDUINO_NRF52_ADAFRUIT",
