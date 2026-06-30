@@ -230,7 +230,8 @@ void connect_callback(uint16_t conn_handle) {
     }
   }
 
-  clientUart.discover(conn_handle);
+  bool ok = clientUart.discover(conn_handle);
+  Serial.print("[UART] Discovery: "); Serial.println(ok ? "OK - notifications enabled" : "FAIL");
 }
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
@@ -246,9 +247,16 @@ void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
 //  UART RX (data from device)
 // ═══════════════════════════════════════════
 void uart_rx_callback(BLEClientUart& uart) {
+  static String buf = "";
   while (uart.available()) {
-    uint8_t bat = uart.read();
-    Serial.print("[BAT] "); Serial.print(bat); Serial.println("%");
+    char c = (char)uart.read();
+    if (c == '\n') {
+      buf.trim();
+      if (buf.length() > 0) Serial.println(buf);
+      buf = "";
+    } else if (c != '\r') {
+      buf += c;
+    }
   }
 }
 
@@ -393,6 +401,19 @@ void loop() {
       Serial.println("uptime");
       Serial.print("Uptime: "); Serial.println(formatUptime());
 
+    } else if (cmd == "testbat") {
+      // Direct test: print [BAT] line to check if server parses it
+      Serial.println("[BAT] 99%");
+
+    } else if (cmd == "reqbat") {
+      // Request battery from HeatPett via BLE
+      if (connected && clientUart.discovered()) {
+        clientUart.write((uint8_t)0xFC);
+        Serial.println("[REQBAT] Sent battery request to HeatPett");
+      } else {
+        Serial.println("[REQBAT] Not connected");
+      }
+
     } else if (cmd == "meow") {
       Serial.println("meow");
       Serial.println("(^=◕ᴥ◕=^)");
@@ -405,6 +426,21 @@ void loop() {
         Serial.print("[MOTOR] Sent: 0x"); Serial.println(val, HEX);
       } else {
         Serial.println("[ERROR] Not connected!");
+      }
+    }
+  }
+
+  // ── Poll UART from HeatPett (backup to callback) ──
+  if (connected && clientUart.discovered() && clientUart.available()) {
+    static String rxBuf = "";
+    while (clientUart.available()) {
+      char c = (char)clientUart.read();
+      if (c == '\n') {
+        rxBuf.trim();
+        if (rxBuf.length() > 0) Serial.println(rxBuf);
+        rxBuf = "";
+      } else if (c != '\r') {
+        rxBuf += c;
       }
     }
   }
