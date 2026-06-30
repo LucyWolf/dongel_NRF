@@ -6,7 +6,7 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION          "1.0.0"
+#define VERSION          "1.0.8"
 #define LED_PIN          15
 #define MAX_DEVICES      5
 #define DEVICES_FILE     "/devices.bin"
@@ -231,7 +231,12 @@ void connect_callback(uint16_t conn_handle) {
   }
 
   bool ok = clientUart.discover(conn_handle);
-  Serial.print("[UART] Discovery: "); Serial.println(ok ? "OK - notifications enabled" : "FAIL");
+  if (ok) {
+    bool notif = clientUart.enableTXD();
+    Serial.print("[UART] Discovery: OK | enableTXD: "); Serial.println(notif ? "YES" : "NO");
+  } else {
+    Serial.println("[UART] Discovery: FAIL");
+  }
 }
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
@@ -400,10 +405,6 @@ void loop() {
     } else if (cmd == "uptime") {
       Serial.println("uptime");
       Serial.print("Uptime: "); Serial.println(formatUptime());
-
-    } else if (cmd == "testbat") {
-      // Direct test: print [BAT] line to check if server parses it
-      Serial.println("[BAT] 99%");
 
     } else if (cmd == "reqbat") {
       // Request battery from HeatPett via BLE
