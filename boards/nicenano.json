@@ -1,0 +1,40 @@
+{
+  "build": {
+    "arduino": {
+      "ldscript": "nrf52840_s140_v6.ld"
+    },
+    "core": "nRF5",
+    "cpu": "cortex-m4",
+    "extra_flags": "-DNRF52840_XXAA -DARDUINO_NRF52_ADAFRUIT",
+    "f_cpu": "64000000L",
+    "hwids": [["0x239A", "0x8029"]],
+    "mcu": "nrf52840",
+    "variant": "nicenano",
+    "bootloader": "adafruit_nrf52",
+    "softdevice": {
+      "sd_fwid": "0x00B6",
+      "sd_name": "S140",
+      "sd_version": "6.1.1",
+      "sd_flags": 0
+    }
+  },
+  "connectivity": ["bluetooth"],
+  "debug": {
+    "jlink_device": "nRF52840_xxAA",
+    "svd_path": "nrf52840.svd"
+  },
+  "frameworks": ["arduino"],
+  "name": "nice!nano",
+  "upload": {
+    "maximum_ram_size": 248832,
+    "maximum_size": 815104,
+    "speed": 115200,
+    "protocol": "nrfutil",
+    "protocols": ["jlink", "nrfjprog", "nrfutil"],
+    "use_1200bps_touch": true,
+    "wait_for_upload_port": true,
+    "require_upload_port": true
+  },
+  "url": "https://nicekeyboards.com",
+  "vendor": "nice!nano"
+}
