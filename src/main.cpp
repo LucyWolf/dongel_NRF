@@ -7,7 +7,10 @@
 using namespace Adafruit_LittleFS_Namespace;
 
 #define VERSION          "1.1.4"
-#define LED_PIN          15
+#ifndef BOARD_LED_PIN
+#define BOARD_LED_PIN    15
+#endif
+#define LED_PIN          BOARD_LED_PIN
 #define MAX_DEVICES      5
 #define DEVICES_FILE     "/devices.bin"
 #define SCAN_BLINK_MS    300
