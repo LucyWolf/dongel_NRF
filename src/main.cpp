@@ -6,17 +6,18 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION          "1.1.7"
+#define VERSION            "1.2.0"
 #ifndef BOARD_LED_PIN
-#define BOARD_LED_PIN    15
+#define BOARD_LED_PIN      15
 #endif
-#define LED_PIN          BOARD_LED_PIN
-#define MAX_DEVICES      5
-#define DEVICES_FILE     "/devices.bin"
-#define SCAN_BLINK_MS    300
-#define PULSE_PERIOD_MS  2000
-#define IDLE_BLINK_ON_MS 1000
-#define IDLE_BLINK_MS    2000
+#define LED_PIN            BOARD_LED_PIN
+#define MAX_DEVICES        5
+#define MAX_CONNECTIONS    2
+#define DEVICES_FILE       "/devices.bin"
+#define SCAN_BLINK_MS      300
+#define PULSE_PERIOD_MS    2000
+#define IDLE_BLINK_ON_MS   1000
+#define IDLE_BLINK_MS      2000
 #define PAIRING_TIMEOUT_MS 60000
 
 // Headpat Ecosystem UUID: B5A47D3E-8C21-4F68-92A0-1E3D5C7B9F04 (little-endian)
@@ -39,16 +40,18 @@ uint8_t     savedCount = 0;
 // ═══════════════════════════════════════════
 //  STATE
 // ═══════════════════════════════════════════
-BLEClientUart  clientUart;
-bool           connected        = false;
-bool           scanning         = false;
-bool           pairingMode      = false;
-unsigned long  pairingStart     = 0;
-ble_gap_addr_t currentPeer      = {0};
-uint16_t       currentConnHandle = BLE_CONN_HANDLE_INVALID;
-char           pendingName[20]  = "";
-unsigned long  lastBlink        = 0;
-bool           ledState         = false;
+BLEClientUart  clientUart[MAX_CONNECTIONS];
+uint16_t       connHandles[MAX_CONNECTIONS];
+ble_gap_addr_t connPeers[MAX_CONNECTIONS];
+uint8_t        connCount    = 0;
+
+bool           scanning     = false;
+bool           pairingMode  = false;
+unsigned long  pairingStart = 0;
+char           pendingName[20] = "";
+unsigned long  lastBlink    = 0;
+bool           ledState     = false;
+bool           needScan     = false;
 
 // ═══════════════════════════════════════════
 //  HELPERS
@@ -72,6 +75,30 @@ void printAddr(const ble_gap_addr_t& addr) {
     if (addr.addr[i] < 0x10) Serial.print("0");
     Serial.print(addr.addr[i], HEX);
   }
+}
+
+int findConnSlot(uint16_t conn_handle) {
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    if (connHandles[i] == conn_handle) return i;
+  return -1;
+}
+
+int freeConnSlot() {
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    if (connHandles[i] == BLE_CONN_HANDLE_INVALID) return i;
+  return -1;
+}
+
+bool isAlreadyConnected(const ble_gap_addr_t& addr) {
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID && addrEqual(addr, connPeers[i])) return true;
+  return false;
+}
+
+void writeAll(uint8_t b) {
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID && clientUart[i].discovered())
+      clientUart[i].write(b);
 }
 
 // ═══════════════════════════════════════════
@@ -134,14 +161,14 @@ bool removeDevice(const ble_gap_addr_t& addr) {
 void stopPairingMode() {
   pairingMode = false;
   Serial.println("[PAIR] Pairing mode OFF");
-  if (connected && clientUart.discovered()) clientUart.write((uint8_t)0xFD);
+  writeAll(0xFD);
 }
 
 void startPairingMode() {
   pairingMode  = true;
   pairingStart = millis();
   Serial.println("[PAIR] Pairing mode ON (60s) — scanning for any BLE UART device...");
-  if (!scanning && !connected) {
+  if (!scanning && connCount < MAX_CONNECTIONS) {
     scanning = true;
     Bluefruit.Scanner.start(0);
   }
@@ -151,7 +178,8 @@ void startPairingMode() {
 //  SCAN
 // ═══════════════════════════════════════════
 void startScan() {
-  if (connected) return;
+  if (connCount >= MAX_CONNECTIONS) return;
+  if (scanning) return;
   Serial.println("[SCAN] Scanning for known devices...");
   scanning = true;
   Bluefruit.Scanner.start(0);
@@ -160,13 +188,17 @@ void startScan() {
 void stopScan() {
   scanning = false;
   Bluefruit.Scanner.stop();
-  digitalWrite(LED_PIN, LOW);
 }
 
 // ═══════════════════════════════════════════
 //  BLE SCAN CALLBACK
 // ═══════════════════════════════════════════
 void scan_callback(ble_gap_evt_adv_report_t* report) {
+  if (isAlreadyConnected(report->peer_addr)) {
+    Bluefruit.Scanner.resume();
+    return;
+  }
+
   for (int i = 0; i < savedCount; i++) {
     if (addrEqual(report->peer_addr, savedDevices[i].addr)) {
       Serial.print("[SCAN] Known device found: ");
@@ -211,59 +243,77 @@ void scan_callback(ble_gap_evt_adv_report_t* report) {
 //  BLE CONNECT / DISCONNECT
 // ═══════════════════════════════════════════
 void connect_callback(uint16_t conn_handle) {
-  connected = true;
-  scanning  = false;
-  digitalWrite(LED_PIN, HIGH);
+  int slot = freeConnSlot();
+  if (slot < 0) {
+    Bluefruit.disconnect(conn_handle);
+    return;
+  }
 
-  currentConnHandle = conn_handle;
+  connHandles[slot] = conn_handle;
+  scanning = false;
+
   BLEConnection* conn = Bluefruit.Connection(conn_handle);
-  currentPeer = conn->getPeerAddr();
+  connPeers[slot] = conn->getPeerAddr();
+  connCount++;
 
-  if (addDevice(currentPeer, pendingName)) {
+  if (addDevice(connPeers[slot], pendingName)) {
     Serial.print("[SYS] New device saved: "); Serial.print(pendingName);
     Serial.print(" (#"); Serial.print(savedCount); Serial.println(")");
   }
   memset(pendingName, 0, sizeof(pendingName));
 
-  Serial.print("[BLE] Connected: ");
+  Serial.print("[BLE] Connected (slot "); Serial.print(slot); Serial.print("): ");
   for (int i = 0; i < savedCount; i++) {
-    if (addrEqual(savedDevices[i].addr, currentPeer)) {
+    if (addrEqual(savedDevices[i].addr, connPeers[slot])) {
       Serial.println(savedDevices[i].name[0] ? savedDevices[i].name : "?");
       break;
     }
   }
+  Serial.print("[BLE] Active connections: "); Serial.print(connCount);
+  Serial.print("/"); Serial.println(MAX_CONNECTIONS);
 
-  bool ok = clientUart.discover(conn_handle);
+  bool ok = clientUart[slot].discover(conn_handle);
   if (ok) {
-    bool notif = clientUart.enableTXD();
-    Serial.print("[UART] Discovery: OK | enableTXD: "); Serial.println(notif ? "YES" : "NO");
+    bool notif = clientUart[slot].enableTXD();
+    Serial.print("[UART] Slot "); Serial.print(slot);
+    Serial.print(" Discovery: OK | enableTXD: "); Serial.println(notif ? "YES" : "NO");
   } else {
-    Serial.println("[UART] Discovery: FAIL");
+    Serial.print("[UART] Slot "); Serial.print(slot); Serial.println(" Discovery: FAIL");
   }
+
+  if (connCount < MAX_CONNECTIONS) needScan = true;
 }
 
 void disconnect_callback(uint16_t conn_handle, uint8_t reason) {
-  Serial.print("[BLE] Disconnected. Reason="); Serial.println(reason);
-  connected         = false;
-  currentConnHandle = BLE_CONN_HANDLE_INVALID;
-  memset(&currentPeer, 0, sizeof(currentPeer));
-  digitalWrite(LED_PIN, LOW);
-  startScan();
+  int slot = findConnSlot(conn_handle);
+  if (slot >= 0) {
+    Serial.print("[BLE] Disconnected slot "); Serial.print(slot);
+    Serial.print(". Reason="); Serial.println(reason);
+    connHandles[slot] = BLE_CONN_HANDLE_INVALID;
+    memset(&connPeers[slot], 0, sizeof(ble_gap_addr_t));
+    connCount--;
+  }
+  needScan = true;
 }
 
 // ═══════════════════════════════════════════
 //  UART RX (data from device)
 // ═══════════════════════════════════════════
 void uart_rx_callback(BLEClientUart& uart) {
-  static String buf = "";
+  static String buf[MAX_CONNECTIONS];
+  int slot = -1;
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    if (&uart == &clientUart[i]) { slot = i; break; }
+  if (slot < 0) return;
+
   while (uart.available()) {
     char c = (char)uart.read();
     if (c == '\n') {
-      buf.trim();
-      if (buf.length() > 0) Serial.println(buf);
-      buf = "";
+      buf[slot].trim();
+      if (buf[slot].length() > 0) Serial.println(buf[slot]);
+      buf[slot] = "";
     } else if (c != '\r') {
-      buf += c;
+      buf[slot] += c;
     }
   }
 }
@@ -274,7 +324,6 @@ void uart_rx_callback(BLEClientUart& uart) {
 void setup() {
   pinMode(LED_PIN, OUTPUT);
 
-  // 3 blinks = firmware started
   for (int i = 0; i < 3; i++) {
     digitalWrite(LED_PIN, HIGH); delay(100);
     digitalWrite(LED_PIN, LOW);  delay(100);
@@ -290,13 +339,18 @@ void setup() {
 
   loadDevices();
 
-  Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pairing, dfu, uptime, meow");
+  Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pair, dfu, uptime, meow");
 
-  Bluefruit.begin(0, 1);
+  for (int i = 0; i < MAX_CONNECTIONS; i++)
+    connHandles[i] = BLE_CONN_HANDLE_INVALID;
+
+  Bluefruit.begin(0, MAX_CONNECTIONS);
   Bluefruit.setName("Headpat-Dongle");
 
-  clientUart.begin();
-  clientUart.setRxCallback(uart_rx_callback);
+  for (int i = 0; i < MAX_CONNECTIONS; i++) {
+    clientUart[i].begin();
+    clientUart[i].setRxCallback(uart_rx_callback);
+  }
 
   Bluefruit.Central.setConnectCallback(connect_callback);
   Bluefruit.Central.setDisconnectCallback(disconnect_callback);
@@ -322,6 +376,12 @@ void loop() {
     stopPairingMode();
   }
 
+  // ── Deferred scan restart ─────────────────
+  if (needScan && !scanning) {
+    needScan = false;
+    startScan();
+  }
+
   // ── Serial Commands ──────────────────────
   if (Serial.available()) {
     String cmd = Serial.readStringUntil('\n');
@@ -340,13 +400,14 @@ void loop() {
       Serial.println("Board: nRF52840");
       Serial.println("SOC: nrf52840");
       Serial.print  ("Device address: "); printAddr(myAddr); Serial.println();
-      Serial.print  ("Connected: ");      Serial.println(connected ? "YES" : "NO");
+      Serial.print  ("Connected: ");      Serial.print(connCount); Serial.print("/"); Serial.println(MAX_CONNECTIONS);
       Serial.print  ("Pairing mode: ");   Serial.println(pairingMode ? "YES" : "NO");
       Serial.print  ("Saved devices: ");  Serial.println(savedCount);
       Serial.print  ("Uptime: ");         Serial.println(formatUptime());
 
     } else if (cmd == "list") {
       Serial.println("list");
+      Serial.print("Active connections: "); Serial.print(connCount); Serial.print("/"); Serial.println(MAX_CONNECTIONS);
       Serial.print("Saved devices ("); Serial.print(savedCount); Serial.print("/"); Serial.print(MAX_DEVICES); Serial.println("):");
       if (savedCount == 0) {
         Serial.println("(none)");
@@ -356,7 +417,11 @@ void loop() {
           Serial.print(savedDevices[i].name[0] ? savedDevices[i].name : "Unknown");
           Serial.print("  ");
           printAddr(savedDevices[i].addr);
-          if (connected && addrEqual(savedDevices[i].addr, currentPeer)) Serial.print("  *connected*");
+          for (int j = 0; j < MAX_CONNECTIONS; j++) {
+            if (connHandles[j] != BLE_CONN_HANDLE_INVALID && addrEqual(savedDevices[i].addr, connPeers[j])) {
+              Serial.print("  *connected*");
+            }
+          }
           Serial.println();
         }
       }
@@ -369,18 +434,23 @@ void loop() {
 
     } else if (cmd == "remove") {
       Serial.println("remove");
-      if (!connected) {
+      if (connCount == 0) {
         Serial.println("Error: not connected — no device to remove.");
-      } else if (removeDevice(currentPeer)) {
-        Serial.println("Device removed.");
-        Bluefruit.disconnect(currentConnHandle);
       } else {
-        Serial.println("Error: device not in saved list.");
+        // Remove all currently connected devices
+        for (int i = 0; i < MAX_CONNECTIONS; i++) {
+          if (connHandles[i] != BLE_CONN_HANDLE_INVALID) {
+            removeDevice(connPeers[i]);
+            Bluefruit.disconnect(connHandles[i]);
+          }
+        }
+        Serial.println("Device(s) removed.");
       }
 
     } else if (cmd == "clear") {
       Serial.println("clear");
-      if (connected) Bluefruit.disconnect(currentConnHandle);
+      for (int i = 0; i < MAX_CONNECTIONS; i++)
+        if (connHandles[i] != BLE_CONN_HANDLE_INVALID) Bluefruit.disconnect(connHandles[i]);
       savedCount = 0;
       memset(savedDevices, 0, sizeof(savedDevices));
       saveDevices();
@@ -389,10 +459,8 @@ void loop() {
     } else if (cmd == "pairing" || cmd == "pair") {
       Serial.println("pairing");
       startPairingMode();
-      if (connected && clientUart.discovered()) {
-        clientUart.write((uint8_t)0xFE);
-        Serial.println("Pairing command sent to connected device.");
-      }
+      writeAll(0xFE);
+      if (connCount > 0) Serial.println("Pairing command sent to connected device(s).");
 
     } else if (cmd == "exit") {
       Serial.println("exit");
@@ -410,17 +478,17 @@ void loop() {
       Serial.print("Uptime: "); Serial.println(formatUptime());
 
     } else if (cmd == "reqbat") {
-      if (connected && clientUart.discovered()) {
-        clientUart.write((uint8_t)0xFC);
-        Serial.println("[REQBAT] Sent battery request to Headpat");
+      if (connCount > 0) {
+        writeAll(0xFC);
+        Serial.println("[REQBAT] Sent battery request");
       } else {
         Serial.println("[REQBAT] Not connected");
       }
 
     } else if (cmd == "reqver") {
-      if (connected && clientUart.discovered()) {
-        clientUart.write((uint8_t)0xFB);
-        Serial.println("[REQVER] Sent version request to Headpat");
+      if (connCount > 0) {
+        writeAll(0xFB);
+        Serial.println("[REQVER] Sent version request");
       } else {
         Serial.println("[REQVER] Not connected");
       }
@@ -431,9 +499,9 @@ void loop() {
       Serial.println("Headpat says: purrrr...");
 
     } else if (cmd.startsWith("m:")) {
-      if (connected && clientUart.discovered()) {
+      if (connCount > 0) {
         uint8_t val = (uint8_t)strtol(cmd.substring(2).c_str(), NULL, 16);
-        clientUart.write(val);
+        writeAll(val);
         Serial.print("[MOTOR] Sent: 0x"); Serial.println(val, HEX);
       } else {
         Serial.println("[ERROR] Not connected!");
@@ -442,22 +510,24 @@ void loop() {
   }
 
   // ── Poll UART from Headpat (backup to callback) ──
-  if (connected && clientUart.discovered() && clientUart.available()) {
-    static String rxBuf = "";
-    while (clientUart.available()) {
-      char c = (char)clientUart.read();
-      if (c == '\n') {
-        rxBuf.trim();
-        if (rxBuf.length() > 0) Serial.println(rxBuf);
-        rxBuf = "";
-      } else if (c != '\r') {
-        rxBuf += c;
+  static String rxBuf[MAX_CONNECTIONS];
+  for (int i = 0; i < MAX_CONNECTIONS; i++) {
+    if (connHandles[i] != BLE_CONN_HANDLE_INVALID && clientUart[i].discovered() && clientUart[i].available()) {
+      while (clientUart[i].available()) {
+        char c = (char)clientUart[i].read();
+        if (c == '\n') {
+          rxBuf[i].trim();
+          if (rxBuf[i].length() > 0) Serial.println(rxBuf[i]);
+          rxBuf[i] = "";
+        } else if (c != '\r') {
+          rxBuf[i] += c;
+        }
       }
     }
   }
 
   // ── LED: off when connected ──────────────
-  if (connected) {
+  if (connCount > 0) {
     digitalWrite(LED_PIN, LOW);
     return;
   }
