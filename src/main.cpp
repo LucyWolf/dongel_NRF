@@ -6,7 +6,7 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION            "1.3.3"
+#define VERSION            "1.3.4"
 #ifndef BOARD_LED_PIN
 #define BOARD_LED_PIN      15
 #endif
@@ -499,12 +499,25 @@ void loop() {
       Serial.println("Headpat says: purrrr...");
 
     } else if (cmd.startsWith("m:")) {
-      if (connCount > 0) {
+      if (connCount == 0) {
+        Serial.println("[ERROR] Not connected!");
+      } else if (connCount == 1) {
         uint8_t val = (uint8_t)strtol(cmd.substring(2).c_str(), NULL, 16);
         writeAll(val);
-        Serial.print("[MOTOR] Sent: 0x"); Serial.println(val, HEX);
+        Serial.print("[MOTOR] All: 0x"); Serial.println(val, HEX);
       } else {
-        Serial.println("[ERROR] Not connected!");
+        // 2 devices: upper nibble → slot 0, lower nibble → slot 1
+        uint8_t val = (uint8_t)strtol(cmd.substring(2).c_str(), NULL, 16);
+        uint8_t n0 = (val >> 4) & 0x0F;
+        uint8_t n1 = val & 0x0F;
+        uint8_t b0 = (n0 << 4) | n0;
+        uint8_t b1 = (n1 << 4) | n1;
+        if (connHandles[0] != BLE_CONN_HANDLE_INVALID && clientUart[0].discovered())
+          clientUart[0].write(b0);
+        if (connHandles[1] != BLE_CONN_HANDLE_INVALID && clientUart[1].discovered())
+          clientUart[1].write(b1);
+        Serial.print("[MOTOR] Slot0: 0x"); Serial.print(b0, HEX);
+        Serial.print(" Slot1: 0x"); Serial.println(b1, HEX);
       }
     }
   }
