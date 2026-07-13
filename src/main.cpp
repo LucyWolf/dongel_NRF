@@ -6,7 +6,7 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION            "1.3.3"
+#define VERSION            "1.3.2"
 #ifndef BOARD_LED_PIN
 #define BOARD_LED_PIN      15
 #endif
