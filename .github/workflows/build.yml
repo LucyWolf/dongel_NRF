@@ -35,13 +35,20 @@ jobs:
       - name: Install PlatformIO packages
         run: pio pkg install
 
+      - name: Inject version from tag
+        run: |
+          TAG="${{ github.ref_name }}"
+          if [[ "$TAG" =~ ^v ]]; then VER="${TAG#v}"; else VER="0.0.0-dev"; fi
+          sed -i "s/#define VERSION\s*\"[^\"]*\"/#define VERSION            \"$VER\"/" src/main.cpp
+          echo "Version set to $VER"
+
       - name: Build firmware (both boards)
         run: pio run
 
       - name: Collect UF2 files
         run: |
-          cp .pio/build/nicenano/firmware.uf2 dongle-pro-micro-nrf52840.uf2
-          cp .pio/build/holyiot/firmware.uf2 dongle-holyiot-nrf52840.uf2
+          cp .pio/build/nicenano/firmware.uf2 dongle-nicenano.uf2
+          cp .pio/build/holyiot/firmware.uf2  dongle-holyiot.uf2
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -57,6 +64,6 @@ jobs:
         with:
           name: Headpat Dongle ${{ github.ref_name }}
           files: |
-            dongle-pro-micro-nrf52840.uf2
-            dongle-holyiot-nrf52840.uf2
+            dongle-nicenano.uf2
+            dongle-holyiot.uf2
           generate_release_notes: true
