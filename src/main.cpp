@@ -6,7 +6,7 @@
 
 using namespace Adafruit_LittleFS_Namespace;
 
-#define VERSION            "1.3.4"
+#define VERSION            "1.3.5"
 #ifndef BOARD_LED_PIN
 #define BOARD_LED_PIN      15
 #endif
@@ -339,7 +339,7 @@ void setup() {
 
   loadDevices();
 
-  Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pair, dfu, uptime, meow");
+  Serial.println("[SYS] Commands: info, list, reboot, remove, clear, pair, dfu, uptime, meow, hpsleep");
 
   for (int i = 0; i < MAX_CONNECTIONS; i++)
     connHandles[i] = BLE_CONN_HANDLE_INVALID;
@@ -497,6 +497,15 @@ void loop() {
       Serial.println("meow");
       Serial.println("(^=◕ᴥ◕=^)");
       Serial.println("Headpat says: purrrr...");
+
+    } else if (cmd == "hpsleep") {
+      Serial.println("hpsleep");
+      if (connCount > 0) {
+        writeAll(0xFA);
+        Serial.println("[SLEEP] Sleep-Befehl an Headpat gesendet");
+      } else {
+        Serial.println("[SLEEP] Headpat nicht verbunden");
+      }
 
     } else if (cmd.startsWith("m:")) {
       if (connCount == 0) {
